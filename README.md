@@ -13,6 +13,17 @@ Getting new index.js
 
 * Run a real wrangler deploy, then go into the console and copy/paste
 
+Getting new memfs.wasm
+----------------------
+
+`npm view @cloudflare/workers-wasi`
+
+```
+.tarball: https://registry.npmjs.org/@cloudflare/workers-wasi/-/workers-wasi-0.0.5.tgz
+.shasum: 1d9a69c668fd9e240f929dfd5ca802447f31d911
+.integrity: sha512-Gxu2tt2YY8tRgN7vfY8mSW0Md5wUj5+gb5eYrqsGRM+qJn9jx+ButL6BteLluDe5vlEkxQ69LagEMHjE58O7iQ==
+```
+
 Steps we take:
 --------------
 
