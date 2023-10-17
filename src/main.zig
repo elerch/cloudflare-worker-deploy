@@ -1,9 +1,12 @@
 const std = @import("std");
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+// TODO: All this stuff needs to be different
+const index = @embedFile("index.js");
+const wasm = @embedFile("demo.wasm");
+const accountid = @embedFile("accountid.txt");
+const worker_name = @embedFile("worker_name.txt");
 
+pub fn main() !void {
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
@@ -11,7 +14,10 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    try stdout.print("Index bytes: {d}\n", .{index.len});
+    try stdout.print("Wasm bytes: {d}\n", .{wasm.len});
+    try stdout.print("Account: {s}\n", .{accountid});
+    try stdout.print("Worker name: {s}\n", .{worker_name});
 
     try bw.flush(); // don't forget to flush!
 }

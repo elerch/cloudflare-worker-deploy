@@ -1,6 +1,14 @@
 Upload worker to CloudFlare
 ===========================
 
+Until we're better
+------------------
+
+1. Add `accountid.txt` to `src/` with the CloudFlare account id
+2. Add `worker_name.txt` to `src/` with CloudFlare worker name
+3. `zig build run`
+
+
 Steps we take:
 --------------
 
