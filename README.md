@@ -8,6 +8,10 @@ Until we're better
 2. Add `worker_name.txt` to `src/` with CloudFlare worker name
 3. `zig build run`
 
+Getting new index.js
+--------------------
+
+* Run a real wrangler deploy, then go into the console and copy/paste
 
 Steps we take:
 --------------
