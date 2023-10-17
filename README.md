@@ -6,7 +6,8 @@ Until we're better
 
 1. Add `accountid.txt` to `src/` with the CloudFlare account id
 2. Add `worker_name.txt` to `src/` with CloudFlare worker name
-3. `zig build run`
+3. `zig build run`. Make sure that CF_X_AUTH_EMAIL and CF_X_AUTH_KEY environment
+   variables are set with the correct authentication parameters
 
 Getting new index.js
 --------------------
