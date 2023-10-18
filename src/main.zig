@@ -12,60 +12,41 @@ pub fn main() !u8 {
     const allocator = arena.allocator();
     var client = std.http.Client{ .allocator = allocator };
 
-    // TODO: All this stuff needs to be different
-    //
-    const worker_name: []const u8 = @embedFile("worker_name.txt");
-    // TODO: We need to break index.js into the wrangler-generated bundling thing
-    //       and the actual code we're using to run the wasm file.
-    //       We might actually want a "run this wasm" upload vs a "these are my
-    //       js files" upload. But for now we'll optimize for wasm
-    const script =
-        \\import demoWasm from "demo.wasm";
-        \\var src_default = {
-        \\  async fetch(request, _env2, ctx) {
-        \\    const stdout = new TransformStream();
-        \\    console.log(request);
-        \\    console.log(_env2);
-        \\    console.log(ctx);
-        \\    let env = {};
-        \\    request.headers.forEach((value, key) => {
-        \\      env[key] = value;
-        \\    });
-        \\    const wasi = new WASI({
-        \\      args: [
-        \\        "./demo.wasm",
-        \\        // In a CLI, the first arg is the name of the exe
-        \\        "--url=" + request.url,
-        \\        // this contains the target but is the full url, so we will use a different arg for this
-        \\        "--method=" + request.method,
-        \\        '-request="' + JSON.stringify(request) + '"'
-        \\      ],
-        \\      env,
-        \\      stdin: request.body,
-        \\      stdout: stdout.writable
-        \\    });
-        \\    const instance = new WebAssembly.Instance(demoWasm, {
-        \\      wasi_snapshot_preview1: wasi.wasiImport
-        \\    });
-        \\    ctx.waitUntil(wasi.start(instance));
-        \\    return new Response(stdout.readable);
-        \\  }
-        \\};
-        \\export {
-        \\  src_default as default
-        \\};
-    ;
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
+
+    var argIterator = try std.process.argsWithAllocator(allocator);
+    defer argIterator.deinit();
+    const exe_name = argIterator.next().?;
+    var maybe_name = argIterator.next();
+    if (maybe_name == null) {
+        try usage(std.io.getStdErr().writer(), exe_name);
+        return 1;
+    }
+    const worker_name = maybe_name.?;
+    if (std.mem.eql(u8, worker_name, "-h")) {
+        try usage(stdout, exe_name);
+        return 0;
+    }
+    var maybe_script_name = argIterator.next();
+    if (maybe_script_name == null) {
+        try usage(std.io.getStdErr().writer(), exe_name);
+        return 1;
+    }
+    const script = std.fs.cwd().readFileAlloc(allocator, maybe_script_name.?, std.math.maxInt(usize)) catch |err| {
+        try usage(std.io.getStdErr().writer(), exe_name);
+        return err;
+    };
+
     pushWorker(allocator, &client, worker_name, script, stdout, std.io.getStdErr().writer()) catch return 1;
     try bw.flush(); // don't forget to flush!
     return 0;
 }
 
+fn usage(writer: anytype, this: []const u8) !void {
+    try writer.print("usage: {s} <worker name> <script file>\n", .{this});
+}
 const Wasm = struct {
     allocator: std.mem.Allocator,
     name: []const u8,
@@ -256,7 +237,7 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
     const url = try std.fmt.allocPrint(allocator, put_script, .{ worker.account_id, worker.name });
     defer allocator.free(url);
     const memfs = @embedFile("dist/memfs.wasm");
-    const outer_script_shell = @embedFile("index.js");
+    const outer_script_shell = @embedFile("script_harness.js");
     const script = try std.fmt.allocPrint(allocator, "{s}{s}", .{ outer_script_shell, worker.main_module });
     defer allocator.free(script);
     const deploy_request =

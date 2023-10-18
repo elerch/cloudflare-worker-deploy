@@ -1,16 +1,12 @@
 Upload worker to CloudFlare
 ===========================
 
-Until we're better
-------------------
+`zig build run -- <worker name> <script file>`. Make sure that CF_X_AUTH_EMAIL
+and CF_X_AUTH_KEY environment variables are set with the correct authentication
+parameters. An example index.js file is included in the root of the project
 
-1. Add `accountid.txt` to `src/` with the CloudFlare account id
-2. Add `worker_name.txt` to `src/` with CloudFlare worker name
-3. `zig build run`. Make sure that CF_X_AUTH_EMAIL and CF_X_AUTH_KEY environment
-   variables are set with the correct authentication parameters
-
-Getting new index.js
---------------------
+Getting new src/script_harness.js
+---------------------------------
 
 * Run a real wrangler deploy, then go into the console and copy/paste
 
@@ -27,7 +23,8 @@ Getting new memfs.wasm
 
 Steps we take:
 --------------
-
+0. Get account id. CF_ACCOUNT_ID environment variable will be checked first. If not,
+   GET https://api.cloudflare.com/client/v4/accounts/
 1. Check if the worker exists:
    GET https://api.cloudflare.com/client/v4/accounts/<account id>/workers/services/<worker_name>
    404 - does not exist
