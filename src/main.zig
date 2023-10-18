@@ -16,6 +16,12 @@ pub fn main() !void {
     // TODO: All this stuff needs to be different
     //
     const worker_name = @embedFile("worker_name.txt");
+    // TODO: We need to break index.js into the wrangler-generated bundling thing
+    //       and the actual code we're using to run the wasm file.
+    //       We might actually want a "run this wasm" upload vs a "these are my
+    //       js files" upload. But for now we'll optimize for wasm
+    const script = @embedFile("index.js");
+    const wasm = @embedFile("demo.wasm");
 
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
@@ -38,7 +44,12 @@ pub fn main() !void {
         .{if (worker_exists) "Worker exists, will not re-enable" else "Worker is new. Will enable after code update"},
     );
 
-    try putNewWorker(allocator, &client, accountid.?, worker_name);
+    try putNewWorker(allocator, &client, .{
+        .account_id = accountid.?,
+        .name = worker_name,
+        .wasm_file_data = wasm,
+        .main_module = script,
+    });
     const subdomain = try getSubdomain(allocator, &client, accountid.?);
     defer allocator.free(subdomain);
     try stdout.print("Worker available at: https://{s}.{s}.workers.dev/\n", .{ worker_name, subdomain });
@@ -116,18 +127,16 @@ fn getSubdomain(allocator: std.mem.Allocator, client: *std.http.Client, account_
     return try allocator.dupe(u8, body.value.object.get("result").?.object.get("subdomain").?.string);
 }
 
-fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8, name: []const u8) !void {
+const Worker = struct {
+    account_id: []const u8,
+    name: []const u8,
+    main_module: []const u8,
+    wasm_file_data: []const u8,
+};
+fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: Worker) !void {
     const put_script = cf_api_base ++ "/accounts/{s}/workers/scripts/{s}?include_subdomain_availability=true&excludeScript=true";
-    const url = try std.fmt.allocPrint(allocator, put_script, .{ account_id, name });
+    const url = try std.fmt.allocPrint(allocator, put_script, .{ worker.account_id, worker.name });
     defer allocator.free(url);
-    // TODO: All this stuff needs to be different
-    //
-    // TODO: We need to break index.js into the wrangler-generated bundling thing
-    //       and the actual code we're using to run the wasm file.
-    //       We might actually want a "run this wasm" upload vs a "these are my
-    //       js files" upload. But for now we'll optimize for wasm
-    const script = @embedFile("index.js");
-    const wasm = @embedFile("demo.wasm");
     const memfs = @embedFile("dist/memfs.wasm");
     const deploy_request =
         "------formdata-undici-032998177938\r\n" ++
@@ -156,8 +165,8 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_
     // TODO: fix this
     try headers.append("Content-Type", "multipart/form-data; boundary=----formdata-undici-032998177938");
     const request_payload = try std.fmt.allocPrint(allocator, deploy_request, .{
-        .script = script,
-        .wasm = wasm,
+        .script = worker.main_module,
+        .wasm = worker.wasm_file_data,
         .memfs = memfs,
     });
     defer allocator.free(request_payload);
