@@ -15,8 +15,6 @@ pub fn main() !void {
     //
     const accountid = @embedFile("accountid.txt");
     const worker_name = @embedFile("worker_name.txt");
-    const get_subdomain = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/scripts/{s}/subdomain";
-    _ = get_subdomain;
 
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
@@ -36,8 +34,60 @@ pub fn main() !void {
     );
 
     try putNewWorker(allocator, &client, accountid, worker_name);
+    try stdout.print("{s}", .{try getSubdomain(allocator, &client, accountid)});
+    if (!worker_exists)
+        try enableWorker(allocator, &client, accountid, worker_name);
     try bw.flush(); // don't forget to flush!
 }
+
+fn enableWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8, name: []const u8) !void {
+    const enable_script = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/scripts/{s}/subdomain";
+    const url = try std.fmt.allocPrint(allocator, enable_script, .{ account_id, name });
+    defer allocator.free(url);
+    var headers = std.http.Headers.init(allocator);
+    defer headers.deinit();
+    try headers.append("X-Auth-Email", x_auth_email);
+    try headers.append("X-Auth-Key", x_auth_key);
+    try headers.append("Content-Type", "application/json; charset=UTF-8");
+    var req = try client.request(.POST, try std.Uri.parse(url), headers, .{});
+    defer req.deinit();
+
+    const request_payload =
+        \\{ "enabled": true }
+    ;
+    req.transfer_encoding = .{ .content_length = @as(u64, request_payload.len) };
+    try req.start();
+    try req.writeAll(request_payload);
+    try req.finish();
+    try req.wait();
+    if (req.response.status != .ok) {
+        std.debug.print("Status is {}\n", .{req.response.status});
+        return error.RequestFailed;
+    }
+}
+
+/// Gets the subdomain for a worker. Caller owns memory
+fn getSubdomain(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8) ![]const u8 {
+    const get_subdomain = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/subdomain";
+    const url = try std.fmt.allocPrint(allocator, get_subdomain, .{account_id});
+    defer allocator.free(url);
+
+    var headers = std.http.Headers.init(allocator);
+    defer headers.deinit();
+    try headers.append("X-Auth-Email", x_auth_email);
+    try headers.append("X-Auth-Key", x_auth_key);
+    var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
+    defer req.deinit();
+    try req.start();
+    try req.wait();
+    if (req.response.status != .ok) return error.RequestNotOk;
+    var json_reader = std.json.reader(allocator, req.reader());
+    defer json_reader.deinit();
+    var body = try std.json.parseFromTokenSource(std.json.Value, allocator, &json_reader, .{});
+    defer body.deinit();
+    return try allocator.dupe(u8, body.value.object.get("result").?.object.get("subdomain").?.string);
+}
+
 fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8, name: []const u8) !void {
     const put_script = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/scripts/{s}?include_subdomain_availability=true&excludeScript=true";
     const url = try std.fmt.allocPrint(allocator, put_script, .{ account_id, name });
