@@ -2,3 +2,4 @@ zig-cache/
 zig-out/
 core
 src/worker_name.txt
+*.wasm
