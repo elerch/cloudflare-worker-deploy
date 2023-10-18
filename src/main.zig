@@ -20,7 +20,42 @@ pub fn main() !void {
     //       and the actual code we're using to run the wasm file.
     //       We might actually want a "run this wasm" upload vs a "these are my
     //       js files" upload. But for now we'll optimize for wasm
-    const script = @embedFile("index.js");
+    const script =
+        \\import demoWasm from "./24526702f6c3ed7fb02b15125f614dd38804525f-demo.wasm";
+        \\var src_default = {
+        \\  async fetch(request, _env2, ctx) {
+        \\    const stdout = new TransformStream();
+        \\    console.log(request);
+        \\    console.log(_env2);
+        \\    console.log(ctx);
+        \\    let env = {};
+        \\    request.headers.forEach((value, key) => {
+        \\      env[key] = value;
+        \\    });
+        \\    const wasi = new WASI({
+        \\      args: [
+        \\        "./demo.wasm",
+        \\        // In a CLI, the first arg is the name of the exe
+        \\        "--url=" + request.url,
+        \\        // this contains the target but is the full url, so we will use a different arg for this
+        \\        "--method=" + request.method,
+        \\        '-request="' + JSON.stringify(request) + '"'
+        \\      ],
+        \\      env,
+        \\      stdin: request.body,
+        \\      stdout: stdout.writable
+        \\    });
+        \\    const instance = new WebAssembly.Instance(demoWasm, {
+        \\      wasi_snapshot_preview1: wasi.wasiImport
+        \\    });
+        \\    ctx.waitUntil(wasi.start(instance));
+        \\    return new Response(stdout.readable);
+        \\  }
+        \\};
+        \\export {
+        \\  src_default as default
+        \\};
+    ;
     const wasm = @embedFile("demo.wasm");
 
     // stdout is for the actual output of your application, for example if you
@@ -138,6 +173,9 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
     const url = try std.fmt.allocPrint(allocator, put_script, .{ worker.account_id, worker.name });
     defer allocator.free(url);
     const memfs = @embedFile("dist/memfs.wasm");
+    const outer_script_shell = @embedFile("index.js");
+    const script = try std.fmt.allocPrint(allocator, "{s}{s}", .{ outer_script_shell, worker.main_module });
+    defer allocator.free(script);
     const deploy_request =
         "------formdata-undici-032998177938\r\n" ++
         "Content-Disposition: form-data; name=\"metadata\"\r\n\r\n" ++
@@ -165,7 +203,7 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
     // TODO: fix this
     try headers.append("Content-Type", "multipart/form-data; boundary=----formdata-undici-032998177938");
     const request_payload = try std.fmt.allocPrint(allocator, deploy_request, .{
-        .script = worker.main_module,
+        .script = script,
         .wasm = worker.wasm_file_data,
         .memfs = memfs,
     });
