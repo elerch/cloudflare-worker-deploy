@@ -2,4 +2,3 @@ zig-cache/
 zig-out/
 core
 src/worker_name.txt
-src/accountid.txt

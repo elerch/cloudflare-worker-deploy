@@ -13,7 +13,6 @@ pub fn main() !void {
     x_auth_key = std.os.getenv("CF_X_AUTH_KEY").?;
     // TODO: All this stuff needs to be different
     //
-    const accountid = @embedFile("accountid.txt");
     const worker_name = @embedFile("worker_name.txt");
 
     // stdout is for the actual output of your application, for example if you
@@ -23,21 +22,51 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
-    try stdout.print("Account: {s}\n", .{accountid});
-    try stdout.print("Worker name: {s}\n", .{worker_name});
+    var accountid = std.os.getenv("CLOUDFLARE_ACCOUNT_ID");
+    const account_id_free = accountid == null;
+    if (accountid == null) accountid = try getAccountId(allocator, &client);
+    defer if (account_id_free) allocator.free(accountid.?);
+
+    try stdout.print("Using Cloudflare account: {s}\n", .{accountid.?});
 
     // Determine if worker exists. This lets us know if we need to enable it later
-    const worker_exists = try workerExists(allocator, &client, accountid, worker_name);
+    const worker_exists = try workerExists(allocator, &client, accountid.?, worker_name);
     try stdout.print(
-        "Worker exists: {}\n",
-        .{worker_exists},
+        "{s}\n",
+        .{if (worker_exists) "Worker exists, will not re-enable" else "Worker is new. Will enable after code update"},
     );
 
-    try putNewWorker(allocator, &client, accountid, worker_name);
-    try stdout.print("{s}", .{try getSubdomain(allocator, &client, accountid)});
+    try putNewWorker(allocator, &client, accountid.?, worker_name);
+    const subdomain = try getSubdomain(allocator, &client, accountid.?);
+    defer allocator.free(subdomain);
+    try stdout.print("Worker available at: https://{s}.{s}.workers.dev/\n", .{ worker_name, subdomain });
     if (!worker_exists)
-        try enableWorker(allocator, &client, accountid, worker_name);
+        try enableWorker(allocator, &client, accountid.?, worker_name);
     try bw.flush(); // don't forget to flush!
+}
+
+fn getAccountId(allocator: std.mem.Allocator, client: *std.http.Client) ![:0]const u8 {
+    const url = "https://api.cloudflare.com/client/v4/accounts/";
+    var headers = std.http.Headers.init(allocator);
+    defer headers.deinit();
+    try headers.append("X-Auth-Email", x_auth_email);
+    try headers.append("X-Auth-Key", x_auth_key);
+    var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
+    defer req.deinit();
+    try req.start();
+    try req.wait();
+    if (req.response.status != .ok) {
+        std.debug.print("Status is {}\n", .{req.response.status});
+        return error.RequestFailed;
+    }
+    var json_reader = std.json.reader(allocator, req.reader());
+    defer json_reader.deinit();
+    var body = try std.json.parseFromTokenSource(std.json.Value, allocator, &json_reader, .{});
+    defer body.deinit();
+    const arr = body.value.object.get("result").?.array.items;
+    if (arr.len == 0) return error.NoAccounts;
+    if (arr.len > 1) return error.TooManyAccounts;
+    return try allocator.dupeZ(u8, arr[0].object.get("id").?.string);
 }
 
 fn enableWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8, name: []const u8) !void {
