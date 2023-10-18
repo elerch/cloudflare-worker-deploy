@@ -140,10 +140,6 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_
     const cl = try std.fmt.allocPrint(allocator, "{d}", .{request_payload.len});
     defer allocator.free(cl);
     try headers.append("Content-Length", cl);
-    std.debug.print("payload length {d}\n", .{request_payload.len});
-    const blah1 = "------formdata-undici-032998177938\r\nC";
-    std.debug.print("first 80 bytes {s}", .{request_payload[0..80]});
-    std.debug.print("Starts with? {}", .{std.mem.startsWith(u8, request_payload, blah1)});
     var req = try client.request(.PUT, try std.Uri.parse(url), headers, .{});
     defer req.deinit();
 
