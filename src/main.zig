@@ -49,8 +49,7 @@ fn getAccountId(allocator: std.mem.Allocator, client: *std.http.Client) ![:0]con
     const url = "https://api.cloudflare.com/client/v4/accounts/";
     var headers = std.http.Headers.init(allocator);
     defer headers.deinit();
-    try headers.append("X-Auth-Email", x_auth_email);
-    try headers.append("X-Auth-Key", x_auth_key);
+    try addAuthHeaders(&headers);
     var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
     defer req.deinit();
     try req.start();
@@ -75,8 +74,7 @@ fn enableWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_
     defer allocator.free(url);
     var headers = std.http.Headers.init(allocator);
     defer headers.deinit();
-    try headers.append("X-Auth-Email", x_auth_email);
-    try headers.append("X-Auth-Key", x_auth_key);
+    try addAuthHeaders(&headers);
     try headers.append("Content-Type", "application/json; charset=UTF-8");
     var req = try client.request(.POST, try std.Uri.parse(url), headers, .{});
     defer req.deinit();
@@ -103,8 +101,7 @@ fn getSubdomain(allocator: std.mem.Allocator, client: *std.http.Client, account_
 
     var headers = std.http.Headers.init(allocator);
     defer headers.deinit();
-    try headers.append("X-Auth-Email", x_auth_email);
-    try headers.append("X-Auth-Key", x_auth_key);
+    try addAuthHeaders(&headers);
     var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
     defer req.deinit();
     try req.start();
@@ -153,8 +150,7 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_
 
     var headers = std.http.Headers.init(allocator);
     defer headers.deinit();
-    try headers.append("X-Auth-Email", x_auth_email);
-    try headers.append("X-Auth-Key", x_auth_key);
+    try addAuthHeaders(&headers);
     // TODO: fix this
     try headers.append("Content-Type", "multipart/form-data; boundary=----formdata-undici-032998177938");
     const request_payload = try std.fmt.allocPrint(allocator, deploy_request, .{
@@ -191,8 +187,7 @@ fn workerExists(allocator: std.mem.Allocator, client: *std.http.Client, account_
     defer allocator.free(url);
     var headers = std.http.Headers.init(allocator);
     defer headers.deinit();
-    try headers.append("X-Auth-Email", x_auth_email);
-    try headers.append("X-Auth-Key", x_auth_key);
+    try addAuthHeaders(&headers);
     var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
     defer req.deinit();
     try req.start();
@@ -202,6 +197,10 @@ fn workerExists(allocator: std.mem.Allocator, client: *std.http.Client, account_
     return req.response.status == .ok;
 }
 
+fn addAuthHeaders(headers: *std.http.Headers) !void {
+    try headers.append("X-Auth-Email", x_auth_email);
+    try headers.append("X-Auth-Key", x_auth_key);
+}
 test "simple test" {
     var list = std.ArrayList(i32).init(std.testing.allocator);
     defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
