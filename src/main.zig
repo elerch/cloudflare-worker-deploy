@@ -2,6 +2,7 @@ const std = @import("std");
 
 var x_auth_email: [:0]const u8 = undefined;
 var x_auth_key: [:0]const u8 = undefined;
+var initialized = false;
 
 const cf_api_base = "https://api.cloudflare.com/client/v4";
 
@@ -11,11 +12,9 @@ pub fn main() !u8 {
     const allocator = arena.allocator();
     var client = std.http.Client{ .allocator = allocator };
 
-    x_auth_email = std.os.getenv("CF_X_AUTH_EMAIL").?;
-    x_auth_key = std.os.getenv("CF_X_AUTH_KEY").?;
     // TODO: All this stuff needs to be different
     //
-    const worker_name = @embedFile("worker_name.txt");
+    const worker_name: []const u8 = @embedFile("worker_name.txt");
     // TODO: We need to break index.js into the wrangler-generated bundling thing
     //       and the actual code we're using to run the wasm file.
     //       We might actually want a "run this wasm" upload vs a "these are my
@@ -56,51 +55,13 @@ pub fn main() !u8 {
         \\  src_default as default
         \\};
     ;
-    var wasm = try loadWasm(allocator, script);
-    defer wasm.deinit();
-
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
-
-    var accountid = std.os.getenv("CLOUDFLARE_ACCOUNT_ID");
-    const account_id_free = accountid == null;
-    if (accountid == null) accountid = try getAccountId(allocator, &client);
-    defer if (account_id_free) allocator.free(accountid.?);
-
-    try stdout.print("Using Cloudflare account: {s}\n", .{accountid.?});
-
-    // Determine if worker exists. This lets us know if we need to enable it later
-    const worker_exists = try workerExists(allocator, &client, accountid.?, worker_name);
-    try stdout.print(
-        "{s}\n",
-        .{if (worker_exists) "Worker exists, will not re-enable" else "Worker is new. Will enable after code update"},
-    );
-
-    var worker = Worker{
-        .account_id = accountid.?,
-        .name = worker_name,
-        .wasm_file_data = wasm.data,
-        .main_module = script,
-    };
-    putNewWorker(allocator, &client, &worker) catch |err| {
-        if (worker.errors == null) return err;
-        const stderr = std.io.getStdErr().writer();
-        try stderr.print("{d} errors returned from CloudFlare:\n\n", .{worker.errors.?.len});
-        for (worker.errors.?) |cf_err| {
-            try stderr.print("{s}\n", .{cf_err});
-            allocator.free(cf_err);
-        }
-        return 1;
-    };
-    const subdomain = try getSubdomain(allocator, &client, accountid.?);
-    defer allocator.free(subdomain);
-    try stdout.print("Worker available at: https://{s}.{s}.workers.dev/\n", .{ worker_name, subdomain });
-    if (!worker_exists)
-        try enableWorker(allocator, &client, accountid.?, worker_name);
+    pushWorker(allocator, &client, worker_name, script, stdout, std.io.getStdErr().writer()) catch return 1;
     try bw.flush(); // don't forget to flush!
     return 0;
 }
@@ -117,6 +78,53 @@ const Wasm = struct {
         self.allocator.free(self.data);
     }
 };
+
+fn pushWorker(
+    allocator: std.mem.Allocator,
+    client: *std.http.Client,
+    worker_name: []const u8,
+    script: []const u8,
+    writer: anytype,
+    err_writer: anytype,
+) !void {
+    var wasm = try loadWasm(allocator, script);
+    defer wasm.deinit();
+
+    var accountid = std.os.getenv("CLOUDFLARE_ACCOUNT_ID");
+    const account_id_free = accountid == null;
+    if (accountid == null) accountid = try getAccountId(allocator, client);
+    defer if (account_id_free) allocator.free(accountid.?);
+
+    try writer.print("Using Cloudflare account: {s}\n", .{accountid.?});
+
+    // Determine if worker exists. This lets us know if we need to enable it later
+    const worker_exists = try workerExists(allocator, client, accountid.?, worker_name);
+    try writer.print(
+        "{s}\n",
+        .{if (worker_exists) "Worker exists, will not re-enable" else "Worker is new. Will enable after code update"},
+    );
+
+    var worker = Worker{
+        .account_id = accountid.?,
+        .name = worker_name,
+        .wasm = wasm,
+        .main_module = script,
+    };
+    putNewWorker(allocator, client, &worker) catch |err| {
+        if (worker.errors == null) return err;
+        try err_writer.print("{d} errors returned from CloudFlare:\n\n", .{worker.errors.?.len});
+        for (worker.errors.?) |cf_err| {
+            try err_writer.print("{s}\n", .{cf_err});
+            allocator.free(cf_err);
+        }
+        return error.CloudFlareErrorResponse;
+    };
+    const subdomain = try getSubdomain(allocator, client, accountid.?);
+    defer allocator.free(subdomain);
+    try writer.print("Worker available at: https://{s}.{s}.workers.dev/\n", .{ worker_name, subdomain });
+    if (!worker_exists)
+        try enableWorker(allocator, client, accountid.?, worker_name);
+}
 
 fn loadWasm(allocator: std.mem.Allocator, script: []const u8) !Wasm {
     // Looking for a string like this: import demoWasm from "demo.wasm"
@@ -240,7 +248,7 @@ const Worker = struct {
     account_id: []const u8,
     name: []const u8,
     main_module: []const u8,
-    wasm_file_data: []const u8,
+    wasm: Wasm,
     errors: ?[][]const u8 = null,
 };
 fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: *Worker) !void {
@@ -261,7 +269,7 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
         "\r\n" ++
         "{[script]s}\r\n" ++
         "------formdata-undici-032998177938\r\n" ++
-        "Content-Disposition: form-data; name=\"./24526702f6c3ed7fb02b15125f614dd38804525f-demo.wasm\"; filename=\"./24526702f6c3ed7fb02b15125f614dd38804525f-demo.wasm\"\r\n" ++
+        "Content-Disposition: form-data; name=\"./{[wasm_name]s}\"; filename=\"./{[wasm_name]s}\"\r\n" ++
         "Content-Type: application/wasm\r\n" ++
         "\r\n" ++
         "{[wasm]s}\r\n" ++
@@ -279,7 +287,8 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
     try headers.append("Content-Type", "multipart/form-data; boundary=----formdata-undici-032998177938");
     const request_payload = try std.fmt.allocPrint(allocator, deploy_request, .{
         .script = script,
-        .wasm = worker.wasm_file_data,
+        .wasm_name = worker.wasm.name,
+        .wasm = worker.wasm.data,
         .memfs = memfs,
     });
     defer allocator.free(request_payload);
@@ -339,6 +348,11 @@ fn workerExists(allocator: std.mem.Allocator, client: *std.http.Client, account_
 }
 
 fn addAuthHeaders(headers: *std.http.Headers) !void {
+    if (!initialized) {
+        x_auth_email = std.os.getenv("CF_X_AUTH_EMAIL").?;
+        x_auth_key = std.os.getenv("CF_X_AUTH_KEY").?;
+        initialized = true;
+    }
     try headers.append("X-Auth-Email", x_auth_email);
     try headers.append("X-Auth-Key", x_auth_key);
 }
