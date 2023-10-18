@@ -3,6 +3,8 @@ const std = @import("std");
 var x_auth_email: [:0]const u8 = undefined;
 var x_auth_key: [:0]const u8 = undefined;
 
+const cf_api_base = "https://api.cloudflare.com/client/v4";
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -46,7 +48,7 @@ pub fn main() !void {
 }
 
 fn getAccountId(allocator: std.mem.Allocator, client: *std.http.Client) ![:0]const u8 {
-    const url = "https://api.cloudflare.com/client/v4/accounts/";
+    const url = cf_api_base ++ "/accounts/";
     var headers = std.http.Headers.init(allocator);
     defer headers.deinit();
     try addAuthHeaders(&headers);
@@ -69,7 +71,7 @@ fn getAccountId(allocator: std.mem.Allocator, client: *std.http.Client) ![:0]con
 }
 
 fn enableWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8, name: []const u8) !void {
-    const enable_script = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/scripts/{s}/subdomain";
+    const enable_script = cf_api_base ++ "/accounts/{s}/workers/scripts/{s}/subdomain";
     const url = try std.fmt.allocPrint(allocator, enable_script, .{ account_id, name });
     defer allocator.free(url);
     var headers = std.http.Headers.init(allocator);
@@ -95,7 +97,7 @@ fn enableWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_
 
 /// Gets the subdomain for a worker. Caller owns memory
 fn getSubdomain(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8) ![]const u8 {
-    const get_subdomain = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/subdomain";
+    const get_subdomain = cf_api_base ++ "/accounts/{s}/workers/subdomain";
     const url = try std.fmt.allocPrint(allocator, get_subdomain, .{account_id});
     defer allocator.free(url);
 
@@ -115,7 +117,7 @@ fn getSubdomain(allocator: std.mem.Allocator, client: *std.http.Client, account_
 }
 
 fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8, name: []const u8) !void {
-    const put_script = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/scripts/{s}?include_subdomain_availability=true&excludeScript=true";
+    const put_script = cf_api_base ++ "/accounts/{s}/workers/scripts/{s}?include_subdomain_availability=true&excludeScript=true";
     const url = try std.fmt.allocPrint(allocator, put_script, .{ account_id, name });
     defer allocator.free(url);
     // TODO: All this stuff needs to be different
@@ -182,7 +184,7 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_
 }
 
 fn workerExists(allocator: std.mem.Allocator, client: *std.http.Client, account_id: []const u8, name: []const u8) !bool {
-    const existence_check = "https://api.cloudflare.com/client/v4/accounts/{s}/workers/services/{s}";
+    const existence_check = cf_api_base ++ "/accounts/{s}/workers/services/{s}";
     const url = try std.fmt.allocPrint(allocator, existence_check, .{ account_id, name });
     defer allocator.free(url);
     var headers = std.http.Headers.init(allocator);
