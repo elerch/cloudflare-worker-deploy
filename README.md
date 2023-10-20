@@ -1,9 +1,37 @@
 Upload worker to CloudFlare
 ===========================
 
-`zig build run -- <worker name> <script file>`. Make sure that CF_X_AUTH_EMAIL
-and CF_X_AUTH_KEY environment variables are set with the correct authentication
-parameters. An example index.js file is included in the root of the project
+`zig build run -- <worker name> <script file>`. Make sure that authentication
+environment variables are set. An example index.js file is included in the
+root of the project
+
+Environment Variables
+---------------------
+
+The following environment variables are supported and match Wrangler behavior:
+
+
+CLOUDFLARE_ACCOUNT_ID
+
+    The account ID for the Workers related account.
+
+CLOUDFLARE_API_TOKEN
+
+    The API token for your Cloudflare account, can be used for authentication for situations like CI/CD, and other automation.
+
+CLOUDFLARE_API_KEY
+
+    The API key for your Cloudflare account, usually used for older authentication method with CLOUDFLARE_EMAIL=.
+
+CLOUDFLARE_EMAIL
+
+    The email address associated with your Cloudflare account, usually used for older authentication method with CLOUDFLARE_API_KEY=.
+
+Note that either CLOUDFLARE_API_TOKEN or CLOUDFLARE_EMAIL/CLOUDFLARE_API_KEY
+environment variable pair are required
+
+Development notes
+=================
 
 Getting new src/script_harness.js
 ---------------------------------
@@ -23,7 +51,7 @@ Getting new memfs.wasm
 
 Steps we take:
 --------------
-0. Get account id. CF_ACCOUNT_ID environment variable will be checked first. If not,
+0. Get account id. CLOUDFLARE_ACCOUNT_ID environment variable will be checked first. If not,
    GET https://api.cloudflare.com/client/v4/accounts/
 1. Check if the worker exists:
    GET https://api.cloudflare.com/client/v4/accounts/<account id>/workers/services/<worker_name>

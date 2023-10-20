@@ -348,8 +348,8 @@ threadlocal var auth_buf: [1024]u8 = undefined;
 fn addAuthHeaders(headers: *std.http.Headers) !void {
     if (!initialized) {
         x_auth_email = std.os.getenv("CLOUDFLARE_EMAIL");
-        x_auth_key = std.os.getenv("CLOUDFLARE_API_TOKEN");
-        x_auth_token = std.os.getenv("CLOUDFLARE_API_KEY");
+        x_auth_key = std.os.getenv("CLOUDFLARE_API_KEY");
+        x_auth_token = std.os.getenv("CLOUDFLARE_API_TOKEN");
         initialized = true;
     }
     if (x_auth_token) |tok| {
