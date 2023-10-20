@@ -347,9 +347,9 @@ threadlocal var auth_buf: [1024]u8 = undefined;
 
 fn addAuthHeaders(headers: *std.http.Headers) !void {
     if (!initialized) {
-        x_auth_email = std.os.getenv("CF_X_AUTH_EMAIL");
-        x_auth_key = std.os.getenv("CF_X_AUTH_KEY");
-        x_auth_token = std.os.getenv("CF_X_AUTH_TOKEN");
+        x_auth_email = std.os.getenv("CLOUDFLARE_EMAIL");
+        x_auth_key = std.os.getenv("CLOUDFLARE_API_TOKEN");
+        x_auth_token = std.os.getenv("CLOUDFLARE_API_KEY");
         initialized = true;
     }
     if (x_auth_token) |tok| {
@@ -359,7 +359,7 @@ fn addAuthHeaders(headers: *std.http.Headers) !void {
     }
     if (x_auth_email) |email| {
         if (x_auth_key == null)
-            return error.MissingCfXAuthKeyEnvironmentVariable;
+            return error.MissingCloudflareApiKeyEnvironmentVariable;
         try headers.append("X-Auth-Email", email);
         try headers.append("X-Auth-Key", x_auth_key.?);
     }
