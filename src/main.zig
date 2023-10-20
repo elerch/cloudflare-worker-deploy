@@ -69,7 +69,7 @@ const Wasm = struct {
     }
 };
 
-fn pushWorker(
+pub fn pushWorker(
     allocator: std.mem.Allocator,
     client: *std.http.Client,
     worker_name: []const u8,

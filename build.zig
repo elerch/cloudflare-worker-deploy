@@ -1,4 +1,5 @@
 const std = @import("std");
+const CloudflareDeployStep = @import("src/CloudflareDeployStep.zig");
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -46,6 +47,13 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    const deploy_cmd = CloudflareDeployStep.create(b, "zigwasi", .{ .path = "index.js" }, .{});
+
+    // This creates a build step. It will be visible in the `zig build --help` menu,
+    // and can be selected like this: `zig build run`
+    // This will evaluate the `run` step rather than the default, which is "install".
+    const deploy_step = b.step("deploy", "Deploy test function to Cloudflare");
+    deploy_step.dependOn(&deploy_cmd.step);
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build run`
     // This will evaluate the `run` step rather than the default, which is "install".
