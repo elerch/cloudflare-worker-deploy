@@ -12,6 +12,7 @@ pub fn main() !u8 {
     defer arena.deinit();
     const allocator = arena.allocator();
     var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
     //     .allocator = allocator,
     //     .proxy = .{
     //         .protocol = .plain,
