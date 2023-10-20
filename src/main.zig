@@ -291,7 +291,14 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
 
     req.transfer_encoding = .{ .content_length = @as(u64, request_payload.len) };
     try req.start();
-    try req.writeAll(request_payload);
+
+    // Workaround for https://github.com/ziglang/zig/issues/15626
+    const max_bytes: usize = 1 << 14;
+    var inx: usize = 0;
+    while (request_payload.len > inx) {
+        try req.writeAll(request_payload[inx..@min(request_payload.len, inx + max_bytes)]);
+        inx += max_bytes;
+    }
     try req.finish();
     try req.wait();
     // std.debug.print("Status is {}\n", .{req.response.status});
