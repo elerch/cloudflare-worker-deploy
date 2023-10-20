@@ -1,5 +1,5 @@
 import demoWasm from "demo.wasm";
-var src_default = {
+export default {
   async fetch(request, _env2, ctx) {
     const stdout = new TransformStream();
     console.log(request);
@@ -28,7 +28,4 @@ var src_default = {
     ctx.waitUntil(wasi.start(instance));
     return new Response(stdout.readable);
   }
-};
-export {
-  src_default as default
 };
