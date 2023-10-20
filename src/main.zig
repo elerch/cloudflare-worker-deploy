@@ -11,6 +11,13 @@ pub fn main() !u8 {
     defer arena.deinit();
     const allocator = arena.allocator();
     var client = std.http.Client{ .allocator = allocator };
+    //     .allocator = allocator,
+    //     .proxy = .{
+    //         .protocol = .plain,
+    //         .host = "localhost",
+    //         .port = 8080,
+    //     },
+    // };
 
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
