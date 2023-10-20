@@ -1,7 +1,8 @@
 const std = @import("std");
 
-var x_auth_email: [:0]const u8 = undefined;
-var x_auth_key: [:0]const u8 = undefined;
+var x_auth_token: ?[:0]const u8 = undefined;
+var x_auth_email: ?[:0]const u8 = undefined;
+var x_auth_key: ?[:0]const u8 = undefined;
 var initialized = false;
 
 const cf_api_base = "https://api.cloudflare.com/client/v4";
@@ -342,14 +343,27 @@ fn workerExists(allocator: std.mem.Allocator, client: *std.http.Client, account_
     return req.response.status == .ok;
 }
 
+threadlocal var auth_buf: [1024]u8 = undefined;
+
 fn addAuthHeaders(headers: *std.http.Headers) !void {
     if (!initialized) {
-        x_auth_email = std.os.getenv("CF_X_AUTH_EMAIL").?;
-        x_auth_key = std.os.getenv("CF_X_AUTH_KEY").?;
+        x_auth_email = std.os.getenv("CF_X_AUTH_EMAIL");
+        x_auth_key = std.os.getenv("CF_X_AUTH_KEY");
+        x_auth_token = std.os.getenv("CF_X_AUTH_TOKEN");
         initialized = true;
     }
-    try headers.append("X-Auth-Email", x_auth_email);
-    try headers.append("X-Auth-Key", x_auth_key);
+    if (x_auth_token) |tok| {
+        var auth = try std.fmt.bufPrint(auth_buf[0..], "Bearer {s}", .{tok});
+        try headers.append("Authorization", auth);
+        return;
+    }
+    if (x_auth_email) |email| {
+        if (x_auth_key == null)
+            return error.MissingCfXAuthKeyEnvironmentVariable;
+        try headers.append("X-Auth-Email", email);
+        try headers.append("X-Auth-Key", x_auth_key.?);
+    }
+    return error.NoCfAuthenticationEnvironmentVariablesSet;
 }
 test "simple test" {
     var list = std.ArrayList(i32).init(std.testing.allocator);
