@@ -3,7 +3,9 @@ const std = @import("std");
 var x_auth_token: ?[:0]const u8 = undefined;
 var x_auth_email: ?[:0]const u8 = undefined;
 var x_auth_key: ?[:0]const u8 = undefined;
-var initialized = false;
+
+var auth_header_buf: [16 * 1024]u8 = undefined;
+var auth_headers: ?[]std.http.Header = null;
 
 const cf_api_base = "https://api.cloudflare.com/client/v4";
 
@@ -28,7 +30,7 @@ pub fn main() !u8 {
     var argIterator = try std.process.argsWithAllocator(allocator);
     defer argIterator.deinit();
     const exe_name = argIterator.next().?;
-    var maybe_name = argIterator.next();
+    const maybe_name = argIterator.next();
     if (maybe_name == null) {
         try usage(std.io.getStdErr().writer(), exe_name);
         return 1;
@@ -38,7 +40,7 @@ pub fn main() !u8 {
         try usage(stdout, exe_name);
         return 0;
     }
-    var maybe_script_name = argIterator.next();
+    const maybe_script_name = argIterator.next();
     if (maybe_script_name == null) {
         try usage(std.io.getStdErr().writer(), exe_name);
         return 1;
@@ -80,7 +82,7 @@ pub fn pushWorker(
     var wasm = try loadWasm(allocator, script);
     defer wasm.deinit();
 
-    var accountid = std.os.getenv("CLOUDFLARE_ACCOUNT_ID");
+    var accountid = std.posix.getenv("CLOUDFLARE_ACCOUNT_ID");
     const account_id_free = accountid == null;
     if (accountid == null) accountid = try getAccountId(allocator, client);
     defer if (account_id_free) allocator.free(accountid.?);
@@ -167,20 +169,19 @@ fn loadWasm(allocator: std.mem.Allocator, script: []const u8) !Wasm {
 
 fn getAccountId(allocator: std.mem.Allocator, client: *std.http.Client) ![:0]const u8 {
     const url = cf_api_base ++ "/accounts/";
-    var headers = std.http.Headers.init(allocator);
-    defer headers.deinit();
-    try addAuthHeaders(&headers);
-    var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
-    defer req.deinit();
-    try req.start();
-    try req.wait();
-    if (req.response.status != .ok) {
-        std.debug.print("Status is {}\n", .{req.response.status});
+    var raw_body = std.ArrayList(u8).init(allocator);
+    defer raw_body.deinit();
+    const req = try client.fetch(.{
+        .response_storage = .{ .dynamic = &raw_body },
+        .method = .GET,
+        .location = .{ .url = url },
+        .privileged_headers = try createAuthHeaders(),
+    });
+    if (req.status != .ok) {
+        std.debug.print("Status is {}\n", .{req.status});
         return error.RequestFailed;
     }
-    var json_reader = std.json.reader(allocator, req.reader());
-    defer json_reader.deinit();
-    var body = try std.json.parseFromTokenSource(std.json.Value, allocator, &json_reader, .{});
+    var body = try std.json.parseFromSlice(std.json.Value, allocator, raw_body.items, .{});
     defer body.deinit();
     const arr = body.value.object.get("result").?.array.items;
     if (arr.len == 0) return error.NoAccounts;
@@ -192,23 +193,24 @@ fn enableWorker(allocator: std.mem.Allocator, client: *std.http.Client, account_
     const enable_script = cf_api_base ++ "/accounts/{s}/workers/scripts/{s}/subdomain";
     const url = try std.fmt.allocPrint(allocator, enable_script, .{ account_id, name });
     defer allocator.free(url);
-    var headers = std.http.Headers.init(allocator);
+    var raw_body = std.ArrayList(u8).init(allocator);
+    defer raw_body.deinit();
+    var headers = std.ArrayList(std.http.Header).init(allocator);
     defer headers.deinit();
     try addAuthHeaders(&headers);
-    try headers.append("Content-Type", "application/json; charset=UTF-8");
-    var req = try client.request(.POST, try std.Uri.parse(url), headers, .{});
-    defer req.deinit();
-
-    const request_payload =
+    try headers.append(.{ .name = "Content-Type", .value = "application/json; charset=UTF-8" });
+    const req = try client.fetch(.{
+        .response_storage = .{ .dynamic = &raw_body },
+        .method = .POST,
+        .payload =
         \\{ "enabled": true }
-    ;
-    req.transfer_encoding = .{ .content_length = @as(u64, request_payload.len) };
-    try req.start();
-    try req.writeAll(request_payload);
-    try req.finish();
-    try req.wait();
-    if (req.response.status != .ok) {
-        std.debug.print("Status is {}\n", .{req.response.status});
+        ,
+        .location = .{ .url = url },
+        .privileged_headers = headers.items,
+    });
+
+    if (req.status != .ok) {
+        std.debug.print("Status is {}\n", .{req.status});
         return error.RequestFailed;
     }
 }
@@ -219,17 +221,18 @@ fn getSubdomain(allocator: std.mem.Allocator, client: *std.http.Client, account_
     const url = try std.fmt.allocPrint(allocator, get_subdomain, .{account_id});
     defer allocator.free(url);
 
-    var headers = std.http.Headers.init(allocator);
+    var raw_body = std.ArrayList(u8).init(allocator);
+    defer raw_body.deinit();
+    var headers = std.ArrayList(std.http.Header).init(allocator);
     defer headers.deinit();
-    try addAuthHeaders(&headers);
-    var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
-    defer req.deinit();
-    try req.start();
-    try req.wait();
-    if (req.response.status != .ok) return error.RequestNotOk;
-    var json_reader = std.json.reader(allocator, req.reader());
-    defer json_reader.deinit();
-    var body = try std.json.parseFromTokenSource(std.json.Value, allocator, &json_reader, .{});
+    const req = try client.fetch(.{
+        .response_storage = .{ .dynamic = &raw_body },
+        .method = .GET,
+        .location = .{ .url = url },
+        .privileged_headers = try createAuthHeaders(),
+    });
+    if (req.status != .ok) return error.RequestNotOk;
+    var body = try std.json.parseFromSlice(std.json.Value, allocator, raw_body.items, .{});
     defer body.deinit();
     return try allocator.dupe(u8, body.value.object.get("result").?.object.get("subdomain").?.string);
 }
@@ -270,11 +273,11 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
         "{[memfs]s}\r\n" ++
         "------formdata-undici-032998177938--";
 
-    var headers = std.http.Headers.init(allocator);
+    var headers = std.ArrayList(std.http.Header).init(allocator);
     defer headers.deinit();
     try addAuthHeaders(&headers);
     // TODO: fix this
-    try headers.append("Content-Type", "multipart/form-data; boundary=----formdata-undici-032998177938");
+    try headers.append(.{ .name = "Content-Type", .value = "multipart/form-data; boundary=----formdata-undici-032998177938" });
     const request_payload = try std.fmt.allocPrint(allocator, deploy_request, .{
         .script = script,
         .wasm_name = worker.wasm.name,
@@ -282,41 +285,28 @@ fn putNewWorker(allocator: std.mem.Allocator, client: *std.http.Client, worker: 
         .memfs = memfs,
     });
     defer allocator.free(request_payload);
-    // Get content length. For some reason it's forcing a chunked transfer type without this.
-    // That's not entirely a bad idea, but for now I want to match what I see
-    // coming through wrangler
-    const cl = try std.fmt.allocPrint(allocator, "{d}", .{request_payload.len});
-    defer allocator.free(cl);
-    try headers.append("Content-Length", cl);
-    var req = try client.request(.PUT, try std.Uri.parse(url), headers, .{});
-    defer req.deinit();
+    var raw_body = std.ArrayList(u8).init(allocator);
+    defer raw_body.deinit();
+    const req = try client.fetch(.{
+        .response_storage = .{ .dynamic = &raw_body },
+        .method = .PUT,
+        .payload = request_payload,
+        .location = .{ .url = url },
+        .privileged_headers = headers.items,
+    });
 
-    req.transfer_encoding = .{ .content_length = @as(u64, request_payload.len) };
-    try req.start();
-
-    // Workaround for https://github.com/ziglang/zig/issues/15626
-    const max_bytes: usize = 1 << 14;
-    var inx: usize = 0;
-    while (request_payload.len > inx) {
-        try req.writeAll(request_payload[inx..@min(request_payload.len, inx + max_bytes)]);
-        inx += max_bytes;
-    }
-    try req.finish();
-    try req.wait();
     // std.debug.print("Status is {}\n", .{req.response.status});
     // std.debug.print("Url is {s}\n", .{url});
-    if (req.response.status != .ok) {
-        std.debug.print("Status is {}\n", .{req.response.status});
-        if (req.response.status == .bad_request)
-            worker.errors = getErrors(allocator, &req) catch null;
+    if (req.status != .ok) {
+        std.debug.print("Status is {}\n", .{req.status});
+        if (req.status == .bad_request)
+            worker.errors = getErrors(allocator, raw_body.items) catch null;
         return error.RequestFailed;
     }
 }
 
-fn getErrors(allocator: std.mem.Allocator, req: *std.http.Client.Request) !?[][]const u8 {
-    var json_reader = std.json.reader(allocator, req.reader());
-    defer json_reader.deinit();
-    var body = try std.json.parseFromTokenSource(std.json.Value, allocator, &json_reader, .{});
+fn getErrors(allocator: std.mem.Allocator, response_body: []const u8) !?[][]const u8 {
+    var body = try std.json.parseFromSlice(std.json.Value, allocator, response_body, .{});
     defer body.deinit();
     const arr = body.value.object.get("errors").?.array.items;
     if (arr.len == 0) return null;
@@ -332,40 +322,54 @@ fn workerExists(allocator: std.mem.Allocator, client: *std.http.Client, account_
     const existence_check = cf_api_base ++ "/accounts/{s}/workers/services/{s}";
     const url = try std.fmt.allocPrint(allocator, existence_check, .{ account_id, name });
     defer allocator.free(url);
-    var headers = std.http.Headers.init(allocator);
+    var headers = std.ArrayList(std.http.Header).init(allocator);
     defer headers.deinit();
-    try addAuthHeaders(&headers);
-    var req = try client.request(.GET, try std.Uri.parse(url), headers, .{});
-    defer req.deinit();
-    try req.start();
-    try req.wait();
+    const req = try client.fetch(.{
+        .method = .GET,
+        .location = .{ .url = url },
+        .privileged_headers = try createAuthHeaders(),
+    });
     // std.debug.print("Status is {}\n", .{req.response.status});
     // std.debug.print("Url is {s}\n", .{url});
-    return req.response.status == .ok;
+    return req.status == .ok;
 }
 
 threadlocal var auth_buf: [1024]u8 = undefined;
 
-fn addAuthHeaders(headers: *std.http.Headers) !void {
-    if (!initialized) {
-        x_auth_email = std.os.getenv("CLOUDFLARE_EMAIL");
-        x_auth_key = std.os.getenv("CLOUDFLARE_API_KEY");
-        x_auth_token = std.os.getenv("CLOUDFLARE_API_TOKEN");
-        initialized = true;
-    }
-    if (x_auth_token) |tok| {
-        var auth = try std.fmt.bufPrint(auth_buf[0..], "Bearer {s}", .{tok});
-        try headers.append("Authorization", auth);
-        return;
-    }
-    if (x_auth_email) |email| {
-        if (x_auth_key == null)
-            return error.MissingCloudflareApiKeyEnvironmentVariable;
-        try headers.append("X-Auth-Email", email);
-        try headers.append("X-Auth-Key", x_auth_key.?);
-    }
-    return error.NoCfAuthenticationEnvironmentVariablesSet;
+fn addAuthHeaders(headers: *std.ArrayList(std.http.Header)) !void {
+    try headers.appendSlice(try createAuthHeaders());
 }
+fn createAuthHeaders() ![]const std.http.Header {
+    if (auth_headers) |h| return h;
+
+    // auth_headers not defined - go make it happen
+    var fb_alloc = std.heap.FixedBufferAllocator.init(&auth_header_buf);
+    const alloc = fb_alloc.allocator();
+    var ah = std.ArrayList(std.http.Header).init(alloc);
+
+    x_auth_email = std.posix.getenv("CLOUDFLARE_EMAIL");
+    x_auth_key = std.posix.getenv("CLOUDFLARE_API_KEY");
+    x_auth_token = std.posix.getenv("CLOUDFLARE_API_TOKEN");
+
+    blk: {
+        if (x_auth_token) |tok| {
+            const auth = try std.fmt.bufPrint(auth_buf[0..], "Bearer {s}", .{tok});
+            try ah.append(.{ .name = "Authorization", .value = auth });
+            break :blk;
+        }
+        if (x_auth_email) |email| {
+            if (x_auth_key == null)
+                return error.MissingCloudflareApiKeyEnvironmentVariable;
+            try ah.append(.{ .name = "X-Auth-Email", .value = email });
+            try ah.append(.{ .name = "X-Auth-Key", .value = x_auth_key.? });
+            break :blk;
+        }
+        return error.NoCfAuthenticationEnvironmentVariablesSet;
+    }
+    auth_headers = ah.items;
+    return auth_headers.?;
+}
+
 test "simple test" {
     var list = std.ArrayList(i32).init(std.testing.allocator);
     defer list.deinit(); // try commenting this out and see if zig detects the memory leak!

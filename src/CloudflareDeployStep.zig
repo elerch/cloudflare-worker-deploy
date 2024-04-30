@@ -35,7 +35,7 @@ pub fn create(
 fn make(step: *std.Build.Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
-    const self = @fieldParentPtr(CloudflareDeployStep, "step", step);
+    const self = @as(*CloudflareDeployStep, @fieldParentPtr("step", step));
 
     var client = std.http.Client{ .allocator = b.allocator };
     defer client.deinit();
