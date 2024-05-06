@@ -1,4 +1,4 @@
-import demoWasm from "demo.wasm";
+import customWasm from "custom.wasm";
 export default {
   async fetch(request, _env2, ctx) {
     const stdout = new TransformStream();
@@ -11,7 +11,7 @@ export default {
     });
     const wasi = new WASI({
       args: [
-        "./demo.wasm",
+        "./custom.wasm",
         // In a CLI, the first arg is the name of the exe
         "--url=" + request.url,
         // this contains the target but is the full url, so we will use a different arg for this
@@ -22,7 +22,7 @@ export default {
       stdin: request.body,
       stdout: stdout.writable
     });
-    const instance = new WebAssembly.Instance(demoWasm, {
+    const instance = new WebAssembly.Instance(customWasm, {
       wasi_snapshot_preview1: wasi.wasiImport
     });
     ctx.waitUntil(wasi.start(instance));
