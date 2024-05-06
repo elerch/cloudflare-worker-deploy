@@ -76,3 +76,25 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 }
+
+pub fn configureBuild(b: *std.Build, cs: *std.Build.Step.Compile, function_name: []const u8) !void {
+    const script = @embedFile("index.js");
+    const wasm_name = try std.fmt.allocPrint(b.allocator, "{s}.wasm", .{cs.name});
+    const deploy_cmd = CloudflareDeployStep.create(
+        b,
+        function_name,
+        .{ .path = "index.js" },
+        .{
+            .primary_file_data = script,
+            .wasm_name = .{
+                .search = "custom.wasm",
+                .replace = wasm_name,
+            },
+            .wasm_dir = b.getInstallPath(.bin, "."),
+        },
+    );
+    deploy_cmd.step.dependOn(b.getInstallStep());
+
+    const deploy_step = b.step("cloudflare", "Deploy as Cloudflare worker (must be compiled with -Dtarget=wasm32-wasi)");
+    deploy_step.dependOn(&deploy_cmd.step);
+}

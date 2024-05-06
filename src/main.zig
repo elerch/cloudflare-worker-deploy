@@ -50,7 +50,7 @@ pub fn main() !u8 {
         return err;
     };
 
-    pushWorker(allocator, &client, worker_name, script, stdout, std.io.getStdErr().writer()) catch return 1;
+    pushWorker(allocator, &client, worker_name, script, ".", stdout, std.io.getStdErr().writer()) catch return 1;
     try bw.flush(); // don't forget to flush!
     return 0;
 }
@@ -75,11 +75,12 @@ pub fn pushWorker(
     allocator: std.mem.Allocator,
     client: *std.http.Client,
     worker_name: []const u8,
+    wasm_dir: []const u8,
     script: []const u8,
     writer: anytype,
     err_writer: anytype,
 ) !void {
-    var wasm = try loadWasm(allocator, script);
+    var wasm = try loadWasm(allocator, script, wasm_dir);
     defer wasm.deinit();
 
     var accountid = std.posix.getenv("CLOUDFLARE_ACCOUNT_ID");
@@ -118,7 +119,7 @@ pub fn pushWorker(
         try enableWorker(allocator, client, accountid.?, worker_name);
 }
 
-fn loadWasm(allocator: std.mem.Allocator, script: []const u8) !Wasm {
+fn loadWasm(allocator: std.mem.Allocator, script: []const u8, wasm_dir: []const u8) !Wasm {
     // Looking for a string like this: import demoWasm from "demo.wasm"
     // JavaScript may or may not have ; characters. We're not doing
     // a full JS parsing here, so this may not be the most robust
@@ -159,7 +160,9 @@ fn loadWasm(allocator: std.mem.Allocator, script: []const u8) !Wasm {
 
     const nm = try allocator.dupe(u8, name.?);
     errdefer allocator.free(nm);
-    const data = try std.fs.cwd().readFileAlloc(allocator, nm, std.math.maxInt(usize));
+    const path = try std.fs.path.join(allocator, &[_][]const u8{ wasm_dir, nm });
+    defer allocator.free(path);
+    const data = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
     return Wasm{
         .allocator = allocator,
         .name = nm,
