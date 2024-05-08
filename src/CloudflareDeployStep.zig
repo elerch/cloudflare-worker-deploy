@@ -75,7 +75,7 @@ fn make(step: *std.Build.Step, prog_node: *std.Progress.Node) !void {
         &client,
         self.worker_name,
         self.options.wasm_dir orelse ".",
-        script,
+        final_script,
         al.writer(),
         std.io.getStdErr().writer(),
     );

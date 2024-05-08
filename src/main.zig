@@ -162,7 +162,10 @@ fn loadWasm(allocator: std.mem.Allocator, script: []const u8, wasm_dir: []const 
     errdefer allocator.free(nm);
     const path = try std.fs.path.join(allocator, &[_][]const u8{ wasm_dir, nm });
     defer allocator.free(path);
-    const data = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+    const data = std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize)) catch |e| {
+        std.log.err("Could not read {s}: {}", .{ path, e });
+        return e;
+    };
     return Wasm{
         .allocator = allocator,
         .name = nm,
