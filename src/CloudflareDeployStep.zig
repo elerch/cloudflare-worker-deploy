@@ -1,5 +1,5 @@
 const std = @import("std");
-const cloudflare = @import("main.zig");
+const cloudflare = @import("cloudflare.zig");
 const CloudflareDeployStep = @This();
 
 pub const base_id: std.Build.Step.Id = .custom;
