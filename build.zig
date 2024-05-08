@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const deploy_cmd = CloudflareDeployStep.create(b, "zigwasi", .{ .path = "index.js" }, .{});
+    const deploy_cmd = CloudflareDeployStep.create(b, "zigwasi", .{ .path = "index.js" }, .{ .compile_target = exe });
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build run`
@@ -78,10 +78,6 @@ pub fn build(b: *std.Build) void {
 }
 
 pub fn configureBuild(b: *std.Build, cs: *std.Build.Step.Compile, function_name: []const u8) !void {
-    if (cs.rootModuleTarget().os.tag != .wasi) {
-        std.log.err("Error: Cloudflare builds require compilation with -Dtarget=wasm32-wasi", .{});
-        return error.WasiCompilationRequired;
-    }
     const script = @embedFile("index.js");
     const wasm_name = try std.fmt.allocPrint(b.allocator, "{s}.wasm", .{cs.name});
     const deploy_cmd = CloudflareDeployStep.create(
@@ -95,6 +91,7 @@ pub fn configureBuild(b: *std.Build, cs: *std.Build.Step.Compile, function_name:
                 .replace = wasm_name,
             },
             .wasm_dir = b.getInstallPath(.bin, "."),
+            .compile_target = cs,
         },
     );
     deploy_cmd.step.dependOn(b.getInstallStep());

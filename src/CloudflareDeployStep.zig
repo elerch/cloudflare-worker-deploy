@@ -23,6 +23,9 @@ pub const Options = struct {
 
     /// When set, the directory specified will be used rather than the current directory
     wasm_dir: ?[]const u8 = null,
+
+    /// Compilation target for this step
+    compile_target: *std.Build.Step.Compile,
 };
 
 pub fn create(
@@ -52,6 +55,11 @@ fn make(step: *std.Build.Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const self = @as(*CloudflareDeployStep, @fieldParentPtr("step", step));
+
+    if (self.options.compile_target.rootModuleTarget().os.tag != .wasi) {
+        std.log.err("Error: Cloudflare builds require compilation with -Dtarget=wasm32-wasi", .{});
+        return error.WasiCompilationRequired;
+    }
 
     var client = std.http.Client{ .allocator = b.allocator };
     try client.initDefaultProxies(b.allocator);
