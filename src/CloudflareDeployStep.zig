@@ -51,7 +51,7 @@ pub fn create(
     return self;
 }
 
-fn make(step: *std.Build.Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *std.Build.Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const self = @as(*CloudflareDeployStep, @fieldParentPtr("step", step));
@@ -66,7 +66,7 @@ fn make(step: *std.Build.Step, prog_node: *std.Progress.Node) !void {
     defer client.deinit();
 
     const script = self.options.primary_file_data orelse
-        try std.fs.cwd().readFileAlloc(b.allocator, self.primary_javascript_path.path, std.math.maxInt(usize));
+        try std.fs.cwd().readFileAlloc(b.allocator, self.primary_javascript_path.src_path.sub_path, std.math.maxInt(usize));
     defer if (self.options.primary_file_data == null) b.allocator.free(script);
 
     var final_script = script;

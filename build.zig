@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
         .name = "zigwasi",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const deploy_cmd = CloudflareDeployStep.create(b, "zigwasi", .{ .path = "index.js" }, .{ .compile_target = exe });
+    const deploy_cmd = CloudflareDeployStep.create(b, "zigwasi", b.path("index.js"), .{ .compile_target = exe });
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build run`
@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -83,7 +83,7 @@ pub fn configureBuild(b: *std.Build, cs: *std.Build.Step.Compile, function_name:
     const deploy_cmd = CloudflareDeployStep.create(
         b,
         function_name,
-        .{ .path = "index.js" },
+        b.path("index.js"),
         .{
             .primary_file_data = script,
             .wasm_name = .{
